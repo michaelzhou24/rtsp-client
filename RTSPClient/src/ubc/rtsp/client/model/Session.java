@@ -14,6 +14,7 @@
 
 package ubc.rtsp.client.model;
 
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -85,7 +86,7 @@ public class Session {
 	 *             If the server does not accept the request, or in case of a
 	 *             connectivity problem.
 	 */
-	public void open(String videoName) throws RTSPException {
+	public void open(String videoName) throws RTSPException, IOException {
 		rtspConnection.setup(videoName);
 		this.videoName = videoName;
 		for (SessionListener listener : sessionListeners)
@@ -103,7 +104,7 @@ public class Session {
 	 *             If the server does not accept the request, or in case of a
 	 *             connectivity problem.
 	 */
-	public void play() throws RTSPException {
+	public void play() throws RTSPException, IOException {
 		rtspConnection.play();
 	}
 
