@@ -84,12 +84,12 @@ public class RTSPConnection {
 
 		this.session = session;
 		try {
-
-			this.startRTPTimer();
-
 			address = InetAddress.getByName(server);
-			CSeq = 0; // initialize RTSP sequence number
+			CSeq = 1; // initialize RTSP sequence number
+
 			streamSocket = new Socket(address, port);
+			rtpSocket = new DatagramSocket(RTP_RCV_PORT);
+
 			RTSPBufferedReader = new BufferedReader(new InputStreamReader(streamSocket.getInputStream()));
 			RTSPBufferedWriter = new BufferedWriter(new OutputStreamWriter(streamSocket.getOutputStream()));
 
@@ -122,8 +122,7 @@ public class RTSPConnection {
 		VideoFileName = videoName;
 		try {
 			sendRequestHeader("SETUP");
-			RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT);
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF + CRLF);
 			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "SETUP command could not be sent to the server";
@@ -144,8 +143,7 @@ public class RTSPConnection {
 	public synchronized void play() throws RTSPException, IOException {
 		try {
 			sendRequestHeader("PLAY");
-			RTSPBufferedWriter.write("Session: " + RTSPid);
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF + CRLF);
 			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "PLAY command could not be sent to the server";
@@ -159,10 +157,9 @@ public class RTSPConnection {
 	 * least MINIMUM_DELAY_READ_PACKETS_MS after receiving a packet to read the
 	 * next one.
 	 */
-	private void startRTPTimer() throws SocketException {
+	private void startRTPTimer() {
 
 		rtpTimer = new Timer();
-		rtpSocket = new DatagramSocket(RTP_RCV_PORT);
 		rtpTimer.schedule(new TimerTask() {
 			@Override
 			public void run() {
@@ -210,8 +207,7 @@ public class RTSPConnection {
 	public synchronized void pause() throws RTSPException {
 		try {
 			sendRequestHeader("PAUSE");
-			RTSPBufferedWriter.write("Session: " + RTSPid);
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF + CRLF);
 			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "PAUSE command could not be sent to the server";
@@ -235,8 +231,7 @@ public class RTSPConnection {
 	public synchronized void teardown() throws RTSPException {
 		try {
 			sendRequestHeader("TEARDOWN");
-			RTSPBufferedWriter.write("Session: " + RTSPid);
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF + CRLF);
 			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "TEARDOWN command could not be sent to the server";
@@ -312,11 +307,9 @@ public class RTSPConnection {
 	private void sendRequestHeader(String request_type) throws RTSPException {
 		try {
 			//write the request line:
-			RTSPBufferedWriter.write(request_type + " " + VideoFileName + " RTSP/1.0");
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write(request_type + " " + VideoFileName + " RTSP/1.0" + CRLF + CRLF);
 			//write the CSeq line:
-			RTSPBufferedWriter.write("CSeq : " + CSeq);
-			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.write("CSeq : " + CSeq + CRLF + CRLF);
 			RTSPBufferedWriter.flush();
 			CSeq ++;
 		} catch(Exception ex) {
