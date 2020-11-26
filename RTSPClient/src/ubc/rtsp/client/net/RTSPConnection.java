@@ -23,6 +23,12 @@ import ubc.rtsp.client.exception.RTSPException;
 import ubc.rtsp.client.model.Frame;
 import ubc.rtsp.client.model.Session;
 
+import javax.xml.crypto.Data;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.Socket;
+
 /**
  * This class represents a connection with an RTSP server.
  */
@@ -39,16 +45,16 @@ public class RTSPConnection {
 	private InetAddress address;
 
 	// RTP
+	private static int RTP_RCV_PORT = 64838;
 	private DatagramSocket rtpSocket; // UDP to receive data
 	private DatagramPacket rcvdPacket;
-	private static int RTP_RCV_PORT = 49152;
 
 	//RTSP variables
 	private Socket streamSocket; // TCP, RTSP to send/receive commands
 	final static int INIT = 0;
 	final static int READY = 1;
 	final static int PLAYING = 2;
-	static int state; // one of INIT, READY, PLAYING
+	static int state = INIT; // one of INIT, READY, PLAYING
 	private int CSeq;
 	private String RTSPid; // ID of the RTSP session (given by the RTSP Server)
 
@@ -82,23 +88,17 @@ public class RTSPConnection {
 			this.startRTPTimer();
 
 			address = InetAddress.getByName(server);
-
-			rtpSocket = new DatagramSocket(RTP_RCV_PORT ++); // create rtpSocket
-			rtpSocket.setSoTimeout(5); // idk if we need
 			CSeq = 0; // initialize RTSP sequence number
-
 			streamSocket = new Socket(address, port);
-
 			RTSPBufferedReader = new BufferedReader(new InputStreamReader(streamSocket.getInputStream()));
 			RTSPBufferedWriter = new BufferedWriter(new OutputStreamWriter(streamSocket.getOutputStream()));
 
+			state = INIT;
 
 		} catch(Exception e) {
 			String exception = "An RTSP connection could not be made to port: " + port;
 			throw new RTSPException(exception);
 		}
-
-		// TODO
 	}
 
 	/**
@@ -120,10 +120,11 @@ public class RTSPConnection {
 	 */
 	public synchronized void setup(String videoName) throws RTSPException, IOException {
 		VideoFileName = videoName;
-
-		sendRequestHeader("SETUP");
 		try {
-			RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF);
+			sendRequestHeader("SETUP");
+			RTSPBufferedWriter.write("Transport: RTP/UDP; client_port= " + RTP_RCV_PORT);
+			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "SETUP command could not be sent to the server";
 			throw new RTSPException(exception);
@@ -141,9 +142,11 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void play() throws RTSPException, IOException {
-		sendRequestHeader("PLAY");
 		try {
-			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF);
+			sendRequestHeader("PLAY");
+			RTSPBufferedWriter.write("Session: " + RTSPid);
+			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "PLAY command could not be sent to the server";
 			throw new RTSPException(exception);
@@ -156,9 +159,10 @@ public class RTSPConnection {
 	 * least MINIMUM_DELAY_READ_PACKETS_MS after receiving a packet to read the
 	 * next one.
 	 */
-	private void startRTPTimer() {
+	private void startRTPTimer() throws SocketException {
 
 		rtpTimer = new Timer();
+		rtpSocket = new DatagramSocket(RTP_RCV_PORT);
 		rtpTimer.schedule(new TimerTask() {
 			@Override
 			public void run() {
@@ -180,10 +184,17 @@ public class RTSPConnection {
 	 * be thrown and no frame should be processed.
 	 */
 	private void receiveRTPPacket() throws IOException, RTSPException {
-		rcvdPacket = new DatagramPacket(buf, BUFFER_LENGTH);
-		rtpSocket.receive(rcvdPacket);
+		try {
+			buf = new byte[BUFFER_LENGTH];
+			rcvdPacket = new DatagramPacket(buf, BUFFER_LENGTH);
+			rtpSocket.receive(rcvdPacket);
+			Frame rtpPacket = parseRTPPacket(rcvdPacket.getData(), rcvdPacket.getLength());
+			session.processReceivedFrame(rtpPacket);
+		} catch (Exception e) {
+			String exception = "No RTP packet in buffer.";
+			//			throw new RTSPException(exception);
+		}
 
-		Frame rtpPacket = parseRTPPacket(rcvdPacket.getData(), rcvdPacket.getLength());
 	}
 
 	/**
@@ -197,9 +208,11 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void pause() throws RTSPException {
-		sendRequestHeader("PAUSE");
 		try {
-			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF);
+			sendRequestHeader("PAUSE");
+			RTSPBufferedWriter.write("Session: " + RTSPid);
+			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "PAUSE command could not be sent to the server";
 			throw new RTSPException(exception);
@@ -220,9 +233,11 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void teardown() throws RTSPException {
-		sendRequestHeader("TEARDOWN");
 		try {
-			RTSPBufferedWriter.write("Session: " + RTSPid + CRLF);
+			sendRequestHeader("TEARDOWN");
+			RTSPBufferedWriter.write("Session: " + RTSPid);
+			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.flush();
 		} catch (Exception e) {
 			String exception = "TEARDOWN command could not be sent to the server";
 			throw new RTSPException(exception);
@@ -296,12 +311,13 @@ public class RTSPConnection {
 
 	private void sendRequestHeader(String request_type) throws RTSPException {
 		try {
-
 			//write the request line:
-			RTSPBufferedWriter.write(request_type + " " + VideoFileName + " RTSP/1.0" + CRLF);
-
+			RTSPBufferedWriter.write(request_type + " " + VideoFileName + " RTSP/1.0");
+			RTSPBufferedWriter.newLine();
 			//write the CSeq line:
-			RTSPBufferedWriter.write("CSeq: " + CSeq + CRLF);
+			RTSPBufferedWriter.write("CSeq : " + CSeq);
+			RTSPBufferedWriter.newLine();
+			RTSPBufferedWriter.flush();
 			CSeq ++;
 		} catch(Exception ex) {
 			String exception = "Could not send RTSP message with type: " + request_type;

@@ -16,6 +16,7 @@ package ubc.rtsp.client.ui;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.IOException;
 
 import javax.swing.JButton;
 import javax.swing.JOptionPane;
@@ -46,7 +47,7 @@ public class VideoControlToolbar extends JToolBar {
 							.showInputDialog("Video file:");
 					if (videoName != null)
 						main.getSession().open(videoName);
-				} catch (RTSPException ex) {
+				} catch (RTSPException | IOException ex) {
 					JOptionPane.showMessageDialog(main, ex.getMessage());
 				}
 			}
@@ -62,7 +63,7 @@ public class VideoControlToolbar extends JToolBar {
 			public void actionPerformed(ActionEvent e) {
 				try {
 					main.getSession().play();
-				} catch (RTSPException ex) {
+				} catch (RTSPException | IOException ex) {
 					JOptionPane.showMessageDialog(main, ex.getMessage());
 				}
 			}
