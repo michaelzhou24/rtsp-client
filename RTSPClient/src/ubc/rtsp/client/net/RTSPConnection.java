@@ -16,6 +16,7 @@ package ubc.rtsp.client.net;
 
 import java.io.*;
 import java.net.*;
+import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -170,6 +171,7 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void play() throws RTSPException {
+		startRTPTimer();
 		sendRequestHeader("PLAY");
 		String request = "Session: " + RTSPid + CRLF + CRLF;
 		sendRequest(request);
