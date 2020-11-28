@@ -15,8 +15,7 @@
 package ubc.rtsp.client.net;
 
 import java.io.*;
-import java.net.*;
-import java.util.Arrays;
+import java.text.DecimalFormat;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -24,7 +23,6 @@ import ubc.rtsp.client.exception.RTSPException;
 import ubc.rtsp.client.model.Frame;
 import ubc.rtsp.client.model.Session;
 
-import javax.xml.crypto.Data;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -45,28 +43,36 @@ public class RTSPConnection {
 	private Timer rtpTimer;
 	private InetAddress address;
 
+	private boolean isPlaying;
+
 	// RTP
 	private static int RTP_RCV_PORT = 25000;
 	private DatagramSocket rtpSocket; // UDP to receive data
 	private DatagramPacket rcvdPacket;
 
-	//RTSP variables
+	// RTSP variables
 	private Socket streamSocket; // TCP, RTSP to send/receive commands
-	final static int INIT = 0;
-	final static int READY = 1;
-	final static int PLAYING = 2;
-	static int state = INIT; // one of INIT, READY, PLAYING
-	private int CSeq;
-	private String RTSPid; // ID of the RTSP session (given by the RTSP Server)
+	private int cseq;
+	private String rtspSessionId;
 
 	// I/O
-	static BufferedReader RTSPBufferedReader;
-	static BufferedWriter RTSPBufferedWriter;
-	static String VideoFileName; //video file to request to the server
+	private BufferedReader rtspReader;
+	private BufferedWriter rtspWriter;
+	private String videoName;
 
-	private void log(String s) {
-		System.out.println("[INFO] : " +s);
-	}
+	// Playback stats:
+	double statDataRate;        //Rate of video data received in bytes/s
+	double statLastPktReceivedTime;
+	int statTotalBytes;         //Total number of bytes received in a session
+	double statStartTime;       //Time in milliseconds when start is pressed
+	double statTotalPlayTime;   //Time in milliseconds of video playing since beginning
+	float statOutofOrder;     //Fraction of RTP data packets from sender lost since the prev packet was sent
+	float statPacketLoss;
+	int statCumLost;            //Number of packets lost
+	int statExpRtpNb;           //Expected Sequence number of RTP messages within the session
+	int statHighSeqNb;          //Highest sequence number received in session
+	int statFramesRecvd;
+	double statFrameRate;
 
 	// TODO Add additional fields, if necessary
 	
@@ -88,17 +94,16 @@ public class RTSPConnection {
 			throws RTSPException {
 
 		this.session = session;
+		this.isPlaying = false;
 		try {
 			address = InetAddress.getByName(server);
-			CSeq = 1; // initialize RTSP sequence number
+			cseq = 1; // initialize RTSP sequence number
 
 			streamSocket = new Socket(address, port);
 			rtpSocket = new DatagramSocket(RTP_RCV_PORT);
 
-			RTSPBufferedReader = new BufferedReader(new InputStreamReader(streamSocket.getInputStream()));
-			RTSPBufferedWriter = new BufferedWriter(new OutputStreamWriter(streamSocket.getOutputStream()));
-
-			state = INIT;
+			rtspReader = new BufferedReader(new InputStreamReader(streamSocket.getInputStream()));
+			rtspWriter = new BufferedWriter(new OutputStreamWriter(streamSocket.getOutputStream()));
 
 		} catch(Exception e) {
 			String exception = "An RTSP connection could not be made to port: " + port;
@@ -124,40 +129,48 @@ public class RTSPConnection {
 	 *             not return a successful response.
 	 */
 	public synchronized void setup(String videoName) throws RTSPException {
-		VideoFileName = videoName;
+		this.videoName = videoName;
 
 		sendRequestHeader("SETUP");
 		String request = "Transport: RTP/UDP; client_port= " + RTP_RCV_PORT + CRLF + CRLF;
 		sendRequest(request);
 	}
 
-	private void sendRequest(String request) throws RTSPException {
+	private int sendRequest(String request) throws RTSPException {
 		System.out.println("Client: " + request);
 		try {
-			RTSPBufferedWriter.write(request);
-			RTSPBufferedWriter.flush();
+			rtspWriter.write(request);
+			rtspWriter.flush();
 		} catch (IOException e) {
 			throw new RTSPException("Could not send to buffered writer.");
 		}
 
 		try {
-			readFromServer();
+			return readFromServer();
 		} catch (IOException e) {
 			throw new RTSPException("Could not read from buffered reader.");
 		}
 	}
 
-	private void readFromServer() throws IOException {
+	private int readFromServer() throws IOException {
 		String value;
-		while((value = RTSPBufferedReader.readLine()) != null) {
+		int responseCode = -1;
+		while((value = rtspReader.readLine()) != null) {
 			if (value.isEmpty()) {
 				break;
 			}
 			if (value.startsWith("Session: ")) {
-				RTSPid = value.substring(9);
+				rtspSessionId = value.substring(9);
+			}
+			if (value.startsWith("RTSP")) {
+				String[] split = value.split(" ");
+				if (split.length > 1) {
+					responseCode = Integer.parseInt(split[1]);
+				}
 			}
 			System.out.println("Server: " + value);
 		}
+		return responseCode;
 	}
 
 	/**
@@ -171,10 +184,15 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void play() throws RTSPException {
-		startRTPTimer();
+		if (!this.isPlaying) {
+			statStartTime = System.currentTimeMillis();
+			this.isPlaying = true;
+		}
 		sendRequestHeader("PLAY");
-		String request = "Session: " + RTSPid + CRLF + CRLF;
-		sendRequest(request);
+		String request = "Session: " + rtspSessionId + CRLF + CRLF;
+		if (sendRequest(request) == 200) {
+			startRTPTimer();
+		}
 	}
 
 	/**
@@ -183,7 +201,6 @@ public class RTSPConnection {
 	 * next one.
 	 */
 	private void startRTPTimer() {
-
 		rtpTimer = new Timer();
 		rtpTimer.schedule(new TimerTask() {
 			@Override
@@ -211,10 +228,24 @@ public class RTSPConnection {
 			rcvdPacket = new DatagramPacket(buf, BUFFER_LENGTH);
 			rtpSocket.receive(rcvdPacket);
 			Frame rtpPacket = parseRTPPacket(rcvdPacket.getData(), rcvdPacket.getLength());
+
+			statLastPktReceivedTime = System.currentTimeMillis();
+			int seq = rtpPacket.getSequenceNumber();
+			if (seq > statHighSeqNb) {
+				statHighSeqNb = seq;
+			}
+			if (statExpRtpNb != seq) {
+				statCumLost++;
+				System.out.printf("[INFO] Got packet with sequence number %d, expected %d.\n", seq, statExpRtpNb);
+			}
+
+			statFramesRecvd++;
+			statTotalBytes += rtpPacket.getPayloadLength();
+			statExpRtpNb++;
 			session.processReceivedFrame(rtpPacket);
 		} catch (Exception e) {
-			String exception = "No RTP packet in buffer.";
-			//			throw new RTSPException(exception);
+			// just try again.
+			e.printStackTrace();
 		}
 
 	}
@@ -230,9 +261,12 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void pause() throws RTSPException {
+		printStatistics();
 		sendRequestHeader("PAUSE");
-		String request = "Session: " + RTSPid + CRLF + CRLF;
-		sendRequest(request);
+		String request = "Session: " + rtspSessionId + CRLF + CRLF;
+		if (sendRequest(request) == 200) {
+			rtpTimer.cancel();
+		}
 	}
 
 	/**
@@ -249,9 +283,21 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void teardown() throws RTSPException {
+		printStatistics();
 		sendRequestHeader("TEARDOWN");
-		String request = "Session: " + RTSPid + CRLF + CRLF;
-		sendRequest(request);
+		String request = "Session: " + rtspSessionId + CRLF + CRLF;
+		if (sendRequest(request) == 200) {
+			this.isPlaying = false;
+			statHighSeqNb = 0;
+			statCumLost = 0;
+			statStartTime = 0;
+			statExpRtpNb = 0;
+			statTotalBytes = 0;
+			statTotalPlayTime = 0;
+			statDataRate = 0;
+			statOutofOrder = 0;
+			rtpTimer.cancel();
+		}
 	}
 
 	/**
@@ -260,7 +306,16 @@ public class RTSPConnection {
 	 * connection, if it is still open.
 	 */
 	public synchronized void closeConnection() {
-		// TODO
+		try {
+			if (this.isPlaying) {
+				this.teardown();
+			}
+			rtspReader.close();
+			rtspWriter.close();
+			streamSocket.close();
+		} catch (Exception e) {
+			System.out.println("Couldn't close RTSP connection.");
+		}
 	}
 
 	/**
@@ -312,8 +367,7 @@ public class RTSPConnection {
 				marker = false;
 			}
 
-			frame = new Frame(payloadType, marker, sequenceNumber, timestamp, payload, offset, len);
-			return frame;
+			return new Frame(payloadType, marker, sequenceNumber, timestamp, payload, offset, len);
 		} else {
 			throw new RTSPException("Could not parse RTP packet.");
 		}
@@ -322,17 +376,32 @@ public class RTSPConnection {
 	private void sendRequestHeader(String request_type) throws RTSPException {
 		try {
 			//write the request line:
-			String request = request_type + " " + VideoFileName + " RTSP/1.0" + CRLF;
-			RTSPBufferedWriter.write(request);
+			String request = request_type + " " + videoName + " RTSP/1.0" + CRLF;
+			rtspWriter.write(request);
 			System.out.print("Client: " + request);
+
 			//write the CSeq line:
-			request = "CSeq: " + CSeq + CRLF;
-			RTSPBufferedWriter.write(request);
+			request = "CSeq: " + cseq + CRLF;
+			rtspWriter.write(request);
 			System.out.print("Client: " + request);
-			CSeq ++;
+			cseq++;
 		} catch(Exception ex) {
 			String exception = "Could not send RTSP message with type: " + request_type;
 			throw new RTSPException(exception);
 		}
+	}
+
+	private void printStatistics() {
+		statTotalPlayTime = statLastPktReceivedTime - statStartTime;
+		statDataRate = statTotalPlayTime == 0 ? 0 : (statTotalBytes / (statTotalPlayTime / 1000.0));
+		statOutofOrder = (float)statCumLost / statHighSeqNb;
+		statFrameRate = statTotalPlayTime == 0 ? 0 : (statFramesRecvd / (statTotalPlayTime / 1000.0));
+		statPacketLoss = 1- ((float)statFramesRecvd / statHighSeqNb);
+		DecimalFormat formatter = new DecimalFormat("###,###.##");
+		// TODO: packet loss rate
+		System.out.println("[INFO] Packet Loss: " + formatter.format(statPacketLoss));
+		System.out.println("[INFO] Packet Out of Order Rate: " + formatter.format(statOutofOrder) + " = " +statCumLost+"/"+statHighSeqNb);
+		System.out.println("[INFO] Data Rate: " + formatter.format(statDataRate) + " B/s");
+		System.out.println("[INFO] Frame Rate: " + formatter.format(statFrameRate));
 	}
 }

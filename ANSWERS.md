@@ -5,7 +5,7 @@ how it affects the video playback experience. Then explain what you believe is
 happening and what is causing the described behaviour.
 
 * FUNKY A:
-
+Starts at sequence number 28.
 * FUNKY B:
 
 * FUNKY C:
