@@ -236,9 +236,9 @@ public class RTSPConnection {
 			}
 			if (statExpRtpNb != seq) {
 				statCumLost++;
-
 			}
-			System.out.printf("[INFO] Got packet with sequence number %d, expected %d.\n", seq, statExpRtpNb);
+
+			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, statExpRtpNb, statFramesRecvd);
 			statFramesRecvd++;
 			statTotalBytes += rtpPacket.getPayloadLength();
 			statExpRtpNb++;
@@ -293,6 +293,7 @@ public class RTSPConnection {
 			statExpRtpNb = 0;
 			statTotalBytes = 0;
 			statTotalPlayTime = 0;
+			statFramesRecvd = 0;
 			dataRate = 0;
 			statOutofOrder = 0;
 			rtpTimer.cancel();
@@ -395,7 +396,7 @@ public class RTSPConnection {
 		dataRate = statTotalPlayTime == 0 ? 0 : (statTotalBytes / (statTotalPlayTime / 1000.0));
 		statOutofOrder = (float)statCumLost / statHighSeqNb;
 		statFrameRate = statTotalPlayTime == 0 ? 0 : (statFramesRecvd / (statTotalPlayTime / 1000.0));
-		statPacketLoss = 1- ((float)statFramesRecvd / statHighSeqNb);
+		statPacketLoss = (float)1 -((float)statFramesRecvd / (float)statHighSeqNb);
 		DecimalFormat formatter = new DecimalFormat("###,###.##");
 		// TODO: packet loss rate
 		System.out.println("[INFO] Packet Loss: " + formatter.format(statPacketLoss));
