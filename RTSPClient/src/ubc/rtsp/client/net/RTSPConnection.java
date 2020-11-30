@@ -61,8 +61,8 @@ public class RTSPConnection {
 	private String videoName;
 
 	// Playback stats:
-	double statDataRate;        //Rate of video data received in bytes/s
-	double statLastPktReceivedTime;
+	double dataRate;        //Rate of video data received in bytes/s
+	double lastPktReceivedTime;
 	int statTotalBytes;         //Total number of bytes received in a session
 	double statStartTime;       //Time in milliseconds when start is pressed
 	double statTotalPlayTime;   //Time in milliseconds of video playing since beginning
@@ -229,16 +229,16 @@ public class RTSPConnection {
 			rtpSocket.receive(rcvdPacket);
 			Frame rtpPacket = parseRTPPacket(rcvdPacket.getData(), rcvdPacket.getLength());
 
-			statLastPktReceivedTime = System.currentTimeMillis();
+			lastPktReceivedTime = System.currentTimeMillis();
 			int seq = rtpPacket.getSequenceNumber();
 			if (seq > statHighSeqNb) {
 				statHighSeqNb = seq;
 			}
 			if (statExpRtpNb != seq) {
 				statCumLost++;
-				System.out.printf("[INFO] Got packet with sequence number %d, expected %d.\n", seq, statExpRtpNb);
-			}
 
+			}
+			System.out.printf("[INFO] Got packet with sequence number %d, expected %d.\n", seq, statExpRtpNb);
 			statFramesRecvd++;
 			statTotalBytes += rtpPacket.getPayloadLength();
 			statExpRtpNb++;
@@ -261,7 +261,6 @@ public class RTSPConnection {
 	 *             if the server did not return a successful response.
 	 */
 	public synchronized void pause() throws RTSPException {
-		printStatistics();
 		sendRequestHeader("PAUSE");
 		String request = "Session: " + rtspSessionId + CRLF + CRLF;
 		if (sendRequest(request) == 200) {
@@ -294,7 +293,7 @@ public class RTSPConnection {
 			statExpRtpNb = 0;
 			statTotalBytes = 0;
 			statTotalPlayTime = 0;
-			statDataRate = 0;
+			dataRate = 0;
 			statOutofOrder = 0;
 			rtpTimer.cancel();
 		}
@@ -392,8 +391,8 @@ public class RTSPConnection {
 	}
 
 	private void printStatistics() {
-		statTotalPlayTime = statLastPktReceivedTime - statStartTime;
-		statDataRate = statTotalPlayTime == 0 ? 0 : (statTotalBytes / (statTotalPlayTime / 1000.0));
+		statTotalPlayTime = lastPktReceivedTime - statStartTime;
+		dataRate = statTotalPlayTime == 0 ? 0 : (statTotalBytes / (statTotalPlayTime / 1000.0));
 		statOutofOrder = (float)statCumLost / statHighSeqNb;
 		statFrameRate = statTotalPlayTime == 0 ? 0 : (statFramesRecvd / (statTotalPlayTime / 1000.0));
 		statPacketLoss = 1- ((float)statFramesRecvd / statHighSeqNb);
@@ -401,7 +400,7 @@ public class RTSPConnection {
 		// TODO: packet loss rate
 		System.out.println("[INFO] Packet Loss: " + formatter.format(statPacketLoss));
 		System.out.println("[INFO] Packet Out of Order Rate: " + formatter.format(statOutofOrder) + " = " +statCumLost+"/"+statHighSeqNb);
-		System.out.println("[INFO] Data Rate: " + formatter.format(statDataRate) + " B/s");
+		System.out.println("[INFO] Data Rate: " + formatter.format(dataRate) + " B/s");
 		System.out.println("[INFO] Frame Rate: " + formatter.format(statFrameRate));
 	}
 }

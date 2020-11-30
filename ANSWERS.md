@@ -7,19 +7,19 @@ happening and what is causing the described behaviour.
 * FUNKY A:
 Starts at sequence number 28.
 * FUNKY B:
-
+Server skips many frames.
 * FUNKY C:
-
+Server plays frames out of order.
 * FUNKY D:
-
+Server plays frames out of order and skips many.
 * FUNKY E:
-
+Server skips every few frames, making video fast forward basically.
 * FUNKY F:
-
+Server plays back frames slowly
 * FUNKY G:
-
+Skips frames and plays frames slowly.
 * FUNKY H:
-
+Skips frames occasionally
 
 ## Statistics
 
@@ -27,6 +27,7 @@ You may add additional columns with more relevant data.
 
 | FUNKY SERVER | FRAME RATE (pkts/sec) | PACKET LOSS RATE (/sec) | OUT OF ORDER |
 |:------------:|-----------------------|-------------------------|--------------|
+|  REGULAR     |          25.1             |           0              |       0       |
 |      A       |                       |                         |              |
 |      B       |                       |                         |              |
 |      C       |                       |                         |              |
