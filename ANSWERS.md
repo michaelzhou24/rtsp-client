@@ -25,7 +25,7 @@ Skips frames occasionally
 
 You may add additional columns with more relevant data.
 
-| FUNKY SERVER | FRAME RATE (pkts/sec) | PACKET LOSS RATE (/sec) | OUT OF ORDER |
+| FUNKY SERVER | FRAME RATE (pkts/sec) | PACKET LOSS RATE (pkts received/expected) | OUT OF ORDER RATE |
 |:------------:|-----------------------|-------------------------|--------------|
 |  REGULAR     |          25.1         |           0             |      0       |
 |      A       |          71.48        |          0.06           |     0.9      |
