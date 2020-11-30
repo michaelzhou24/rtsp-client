@@ -27,28 +27,28 @@ You may add additional columns with more relevant data.
 
 | FUNKY SERVER | FRAME RATE (pkts/sec) | PACKET LOSS RATE (/sec) | OUT OF ORDER |
 |:------------:|-----------------------|-------------------------|--------------|
-|  REGULAR     |          25.1             |           0              |       0       |
-|      A       |                       |                         |              |
-|      B       |                       |                         |              |
-|      C       |                       |                         |              |
-|      D       |                       |                         |              |
-|      E       |                       |                         |              |
-|      F       |                       |                         |              |
-|      G       |                       |                         |              |
-|      H       |                       |                         |              |
+|  REGULAR     |          25.1         |           0             |      0       |
+|      A       |          71.48        |          0.06           |     0.9      |
+|      B       |          16.1         |          0.36           |     0.64     |
+|      C       |          24.76        |           0             |     0.48     |
+|      D       |          12.92        |          0.47           |     0.53     |
+|      E       |          32.79        |          0.63           |     0.34     |
+|      F       |          10.04        |           0             |     0.01     |
+|      G       |           7.81        |          0.22           |     0.77     |
+|      H       |          28.9         |          0.03           |     0.72     |
 
 
 ## Result of analysis
 
 Explain in a few words what you believe is actually happening based on the statistics above.
 
-* FUNKY A:
+* FUNKY A: The server is sending many (90%) of the packets out of order, and some packets are lost (6%). 
 
-* FUNKY B:
+* FUNKY B: The server does not send about 36% of the packets, resulting in frame skipping. Additionally, 64% of frames are not sent in the correct order, so the video may appear jittery or choppy. This results in low FPS.
 
-* FUNKY C:
+* FUNKY C: The server plays about 48% of frames out of order, resulting in jittery/choppy video.
 
-* FUNKY D:
+* FUNKY D: The server loses about 47% of packets and sends 53% of packets out of order, resulting in frame skips and jittery playback.
 
 * FUNKY E:
 Only sequence numbers of multiples of 3 are sent, so the packet loss is what we'd expect 0.33 and the video looks fast forwarded as the FPS is the same.
