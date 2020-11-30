@@ -51,10 +51,10 @@ Explain in a few words what you believe is actually happening based on the stati
 * FUNKY D:
 
 * FUNKY E:
-
+Only sequence numbers of multiples of 3 are sent, so the packet loss is what we'd expect 0.33 and the video looks fast forwarded as the FPS is the same.
 * FUNKY F:
-
+The frames are just being sent at a slower rate, making our data rate lower and FPS lower, but we dont have any packet loss or out of order packets as expected.
 * FUNKY G:
-
+Like F, the frames are being sent at a slower rate, but we have some occasional packet loss, so our loss is higher than in F.
 * FUNKY H:
-
+We have normal playback rate, but some packet so the video gets stuck and jumps forward, and we can observe this with the packet loss being higher.
