@@ -61,18 +61,17 @@ public class RTSPConnection {
 	private String videoName;
 
 	// Playback stats:
-	double dataRate;        //Rate of video data received in bytes/s
 	double lastPktReceivedTime;
-	int statTotalBytes;         //Total number of bytes received in a session
-	double statStartTime;       //Time in milliseconds when start is pressed
-	double statTotalPlayTime;   //Time in milliseconds of video playing since beginning
-	float statOutofOrder;     //Fraction of RTP data packets from sender lost since the prev packet was sent
-	float statPacketLoss;
-	int statCumLost;            //Number of packets lost
-	int statExpRtpNb;           //Expected Sequence number of RTP messages within the session
-	int statHighSeqNb;          //Highest sequence number received in session
-	int statFramesRecvd;
-	double statFrameRate;
+	double startTime;
+	double totalPlayTime;
+	double frameRate;
+	float outOfOrderProportion;
+	float pktLossProportion;
+	int totalOutOfOrder;
+	int expectedSeq;
+	int highestSeqReceived;
+	int pktsReceived;
+
 
 	// TODO Add additional fields, if necessary
 	
@@ -185,7 +184,7 @@ public class RTSPConnection {
 	 */
 	public synchronized void play() throws RTSPException {
 		if (!this.isPlaying) {
-			statStartTime = System.currentTimeMillis();
+			startTime = System.currentTimeMillis();
 			this.isPlaying = true;
 		}
 		sendRequestHeader("PLAY");
@@ -231,17 +230,16 @@ public class RTSPConnection {
 
 			lastPktReceivedTime = System.currentTimeMillis();
 			int seq = rtpPacket.getSequenceNumber();
-			if (seq > statHighSeqNb) {
-				statHighSeqNb = seq;
+			if (seq > highestSeqReceived) {
+				highestSeqReceived = seq;
 			}
-			if (statExpRtpNb != seq) {
-				statCumLost++;
+			if (expectedSeq != seq) {
+				totalOutOfOrder++;
 			}
 
-			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, statExpRtpNb, statFramesRecvd);
-			statFramesRecvd++;
-			statTotalBytes += rtpPacket.getPayloadLength();
-			statExpRtpNb++;
+			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, expectedSeq, pktsReceived);
+			pktsReceived++;
+			expectedSeq++;
 			session.processReceivedFrame(rtpPacket);
 		} catch (Exception e) {
 			// just try again.
@@ -287,15 +285,13 @@ public class RTSPConnection {
 		String request = "Session: " + rtspSessionId + CRLF + CRLF;
 		if (sendRequest(request) == 200) {
 			this.isPlaying = false;
-			statHighSeqNb = 0;
-			statCumLost = 0;
-			statStartTime = 0;
-			statExpRtpNb = 0;
-			statTotalBytes = 0;
-			statTotalPlayTime = 0;
-			statFramesRecvd = 0;
-			dataRate = 0;
-			statOutofOrder = 0;
+			highestSeqReceived = 0;
+			totalOutOfOrder = 0;
+			startTime = 0;
+			expectedSeq = 0;
+			totalPlayTime = 0;
+			pktsReceived = 0;
+			outOfOrderProportion = 0;
 			rtpTimer.cancel();
 		}
 	}
@@ -333,30 +329,26 @@ public class RTSPConnection {
 		short sequenceNumber;
 		int timestamp;
 		byte[] payload;
-		int offset; // ???????? maybe ask TA
+		int offset; // offset?
 		int len;
 		byte[] header;
 
 		int mark;
 
-		Frame frame;
-
 		if (length >= 12) {
-			// Get Header
 			header = new byte[12];
 			for (int i = 0; i < 12; i++) {
 				header[i] = packet[i];
 			}
 
-			// Get Payload
 			len = length - 12;
 			payload = new byte[len];
 			for (int i = 12; i < length; i++) {
 				payload[i-12] = packet[i];
 			}
 
-			payloadType = (byte)(header[1] & 0x7F);
-			sequenceNumber = (short)((header[3] & 0xFF) + ((header[2] & 0xFF) << 8));
+			payloadType = (byte) (header[1] & 0x7F);
+			sequenceNumber = (short) ((header[3] & 0xFF) + ((header[2] & 0xFF) << 8));
 			timestamp = (header[7] & 0xFF) + ((header[6] & 0xFF) << 8) + ((header[5] & 0xFF) << 16) + ((header[4] & 0xFF) << 24);
 			offset = 0;
 			mark = ((header[1] >> 7) & 0x01);
@@ -392,16 +384,14 @@ public class RTSPConnection {
 	}
 
 	private void printStatistics() {
-		statTotalPlayTime = lastPktReceivedTime - statStartTime;
-		dataRate = statTotalPlayTime == 0 ? 0 : (statTotalBytes / (statTotalPlayTime / 1000.0));
-		statOutofOrder = (float)statCumLost / statHighSeqNb;
-		statFrameRate = statTotalPlayTime == 0 ? 0 : (statFramesRecvd / (statTotalPlayTime / 1000.0));
-		statPacketLoss = (float)1 -((float)statFramesRecvd / (float)statHighSeqNb);
+		totalPlayTime = lastPktReceivedTime - startTime;
+		outOfOrderProportion = (float) totalOutOfOrder / highestSeqReceived;
+		frameRate = totalPlayTime == 0 ? 0 : (pktsReceived / (totalPlayTime / 1000.0));
+		pktLossProportion = (float)1 -((float) pktsReceived / (float) highestSeqReceived);
 		DecimalFormat formatter = new DecimalFormat("###,###.##");
 		// TODO: packet loss rate
-		System.out.println("[INFO] Packet Loss: " + formatter.format(statPacketLoss));
-		System.out.println("[INFO] Packet Out of Order Rate: " + formatter.format(statOutofOrder) + " = " +statCumLost+"/"+statHighSeqNb);
-		System.out.println("[INFO] Data Rate: " + formatter.format(dataRate) + " B/s");
-		System.out.println("[INFO] Frame Rate: " + formatter.format(statFrameRate));
+		System.out.println("[INFO] Packet Loss: " + formatter.format(pktLossProportion));
+		System.out.println("[INFO] Packet Out of Order Rate: " + formatter.format(outOfOrderProportion) + " = " + totalOutOfOrder +"/"+ highestSeqReceived);
+		System.out.println("[INFO] Frame Rate: " + formatter.format(frameRate));
 	}
 }
