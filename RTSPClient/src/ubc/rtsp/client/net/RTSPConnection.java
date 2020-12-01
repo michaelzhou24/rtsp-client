@@ -36,6 +36,7 @@ public class RTSPConnection {
 	private static final int BUFFER_LENGTH = 0x10000;
 	private static final long MINIMUM_DELAY_READ_PACKETS_MS = 20;
 	final static String CRLF = "\r\n";
+	private static DecimalFormat df = new DecimalFormat("0.00");
 
 	byte[] buf;  //buffer used to store data received from the server
 
@@ -148,7 +149,7 @@ public class RTSPConnection {
 	}
 
 	private int sendRequest(String request) throws RTSPException {
-		System.out.println("Client: " + request);
+		System.out.print("[CLIENT] " + request);
 		try {
 			rtspWriter.write(request);
 			rtspWriter.flush();
@@ -179,8 +180,9 @@ public class RTSPConnection {
 					responseCode = Integer.parseInt(split[1]);
 				}
 			}
-			System.out.println("Server: " + value);
+			System.out.println("[SERVER] " + value);
 		}
+		System.out.println();
 		return responseCode;
 	}
 
@@ -240,8 +242,8 @@ public class RTSPConnection {
 					}
 
 					if (!videoBuffer.isEmpty()) {
-						System.out.println("BUFFER SEQ: " + videoBuffer.peek().getSequenceNumber());
-						System.out.println("GLOBAL SEQ: " + playbackSeqNum);
+//						System.out.println("BUFFER SEQ: " + videoBuffer.peek().getSequenceNumber());
+//						System.out.println("GLOBAL SEQ: " + playbackSeqNum);
 						while (!videoBuffer.isEmpty() && videoBuffer.peek().getSequenceNumber() == playbackSeqNum) {
 							session.processReceivedFrame(videoBuffer.poll());
 						}
@@ -279,6 +281,7 @@ public class RTSPConnection {
 			if (firstPacketReceived == false) {
 				Thread.sleep(500);
 				firstPacketReceived = true;
+				System.out.println("[INFO] Initial buffering done. Playing back video.");
 			}
 
 			lastPktReceivedTime = System.currentTimeMillis();
@@ -290,7 +293,7 @@ public class RTSPConnection {
 				totalOutOfOrder++;
 			}
 
-			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, expectedSeq, pktsReceived);
+//			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, expectedSeq, pktsReceived);
 			pktsReceived++;
 			expectedSeq++;
 		} catch (Exception e) {
@@ -427,12 +430,12 @@ public class RTSPConnection {
 			//write the request line:
 			String request = request_type + " " + videoName + " RTSP/1.0" + CRLF;
 			rtspWriter.write(request);
-			System.out.print("Client: " + request);
+			System.out.print("[CLIENT] " + request);
 
 			//write the CSeq line:
 			request = "CSeq: " + cseq + CRLF;
 			rtspWriter.write(request);
-			System.out.print("Client: " + request);
+			System.out.print("[CLIENT] " + request);
 			cseq++;
 		} catch(Exception ex) {
 			String exception = "Could not send RTSP message with type: " + request_type;
@@ -448,14 +451,10 @@ public class RTSPConnection {
 	}
 
 	private void printStatistics() {
-		totalPlayTime = lastPktReceivedTime - startTime;
-		outOfOrderProportion = (float) totalOutOfOrder / highestSeqReceived;
-		frameRate = totalPlayTime == 0 ? 0 : (pktsReceived / (totalPlayTime / 1000.0));
-		pktLossProportion = (float)1 -((float) pktsReceived / (float) highestSeqReceived);
-		DecimalFormat formatter = new DecimalFormat("###,###.##");
-		// TODO: packet loss rate
-		System.out.println("[INFO] Packet Loss: " + formatter.format(pktLossProportion));
-		System.out.println("[INFO] Packet Out of Order Rate: " + formatter.format(outOfOrderProportion) + " = " + totalOutOfOrder +"/"+ highestSeqReceived);
-		System.out.println("[INFO] Frame Rate: " + formatter.format(frameRate));
+		updateStatistics();
+
+		System.out.printf("[INFO] Packet Loss: %s\n", df.format(pktLossProportion));
+		System.out.printf("[INFO] Packet Out of Order Rate: %s = %d/%d\n", df.format(outOfOrderProportion), totalOutOfOrder, highestSeqReceived);
+		System.out.printf("[INFO] Frame Rate: %s\n\n", df.format(frameRate));
 	}
 }
