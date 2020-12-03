@@ -26,7 +26,6 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.util.concurrent.PriorityBlockingQueue;
 
 /**
  * This class represents a connection with an RTSP server.
@@ -36,10 +35,11 @@ public class RTSPConnection {
 	private static final int BUFFER_LENGTH = 0x10000;
 	private static final long MINIMUM_DELAY_READ_PACKETS_MS = 20;
 	final static String CRLF = "\r\n";
-	private static DecimalFormat df = new DecimalFormat("0.00");
+	private static final long PLAYBACK_SPEED = 1000/24;
+	private static DecimalFormat Formatter = new DecimalFormat("0.00");
+	private static final int BUFFER_FRAMES = 75;
 
-	byte[] buf;  //buffer used to store data received from the server
-
+	byte[] buf;
 
 	private Session session;
 	private Timer rtpTimer;
@@ -48,27 +48,21 @@ public class RTSPConnection {
 
 	private boolean isPlaying;
 
-	// RTP
 	private static int RTP_RCV_PORT = 25000;
-	private DatagramSocket rtpSocket; // UDP to receive data
+	private DatagramSocket rtpSocket;
 	private DatagramPacket rcvdPacket;
 	private PriorityQueue<Frame> videoBuffer;
-	private long currentTime;
-	private long oldTime;
-	private long playbackSpeed = 1000/24;
 	private int playbackSeqNum;
 
-	// RTSP variables
-	private Socket streamSocket; // TCP, RTSP to send/receive commands
+	private Socket streamSocket;
 	private int cseq;
 	private String rtspSessionId;
 
-	// I/O
 	private BufferedReader rtspReader;
 	private BufferedWriter rtspWriter;
 	private String videoName;
 
-	// Playback stats:
+	// Playback stats
 	double lastPktReceivedTime;
 	double startTime;
 	double totalPlayTime;
@@ -80,9 +74,6 @@ public class RTSPConnection {
 	int highestSeqReceived;
 	int pktsReceived;
 	boolean firstPacketReceived;
-
-
-	// TODO Add additional fields, if necessary
 	
 	/**
 	 * Establishes a new connection with an RTSP server. No message is sent at
@@ -105,7 +96,7 @@ public class RTSPConnection {
 		this.isPlaying = false;
 		try {
 			address = InetAddress.getByName(server);
-			cseq = 1; // initialize RTSP sequence number
+			cseq = 1;
 
 			streamSocket = new Socket(address, port);
 			rtpSocket = new DatagramSocket(RTP_RCV_PORT);
@@ -223,7 +214,7 @@ public class RTSPConnection {
 			public void run() {
 				try {
 					receiveRTPPacket();
-				} catch (IOException | RTSPException | InterruptedException e) {
+				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
@@ -236,6 +227,7 @@ public class RTSPConnection {
 			@Override
 			public void run() {
 				try {
+					// always sleep for 3s to buffer at first
 					if (!firstPacketReceived) {
 						firstPacketReceived = true;
 						Thread.sleep(3000);
@@ -249,14 +241,16 @@ public class RTSPConnection {
 						}
 						playbackSeqNum++;
 					} else {
-						Thread.sleep(1000);
+						updateStatistics();
+						long sleepTime = BUFFER_FRAMES/((long) frameRate) * 1000;
+						Thread.sleep(sleepTime);
 					}
 
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
-		}, 0, playbackSpeed);
+		}, 0, PLAYBACK_SPEED);
 	}
 
 	/**
@@ -267,7 +261,7 @@ public class RTSPConnection {
 	 * called with the resulting packet. In case of timeout no exception should
 	 * be thrown and no frame should be processed.
 	 */
-	private void receiveRTPPacket() throws IOException, RTSPException, InterruptedException {
+	private void receiveRTPPacket() {
 		updateStatistics();
 
 		try {
@@ -278,7 +272,7 @@ public class RTSPConnection {
 
 			videoBuffer.add(rtpPacket);
 
-			if (firstPacketReceived == false) {
+			if (!firstPacketReceived) {
 				Thread.sleep(500);
 				firstPacketReceived = true;
 				System.out.println("[INFO] Initial buffering done. Playing back video.");
@@ -292,7 +286,6 @@ public class RTSPConnection {
 			if (expectedSeq != seq) {
 				totalOutOfOrder++;
 			}
-
 //			System.out.printf("[INFO] Got packet with sequence number %d, expected %d, total frames received: %d\n", seq, expectedSeq, pktsReceived);
 			pktsReceived++;
 			expectedSeq++;
@@ -388,38 +381,27 @@ public class RTSPConnection {
 		boolean marker;
 		short sequenceNumber;
 		int timestamp;
-		byte[] payload;
-		int offset; // offset?
+		byte[] payload, header;
 		int len;
-		byte[] header;
 
 		int mark;
 
 		if (length >= 12) {
 			header = new byte[12];
-			for (int i = 0; i < 12; i++) {
-				header[i] = packet[i];
-			}
+			System.arraycopy(packet,0, header, 0, 12);
 
 			len = length - 12;
 			payload = new byte[len];
-			for (int i = 12; i < length; i++) {
-				payload[i-12] = packet[i];
-			}
+			System.arraycopy(packet, 12, payload, 0, length - 12);
 
 			payloadType = (byte) (header[1] & 0x7F);
 			sequenceNumber = (short) ((header[3] & 0xFF) + ((header[2] & 0xFF) << 8));
 			timestamp = (header[7] & 0xFF) + ((header[6] & 0xFF) << 8) + ((header[5] & 0xFF) << 16) + ((header[4] & 0xFF) << 24);
-			offset = 0;
 			mark = ((header[1] >> 7) & 0x01);
 
-			if (mark == 1) {
-				marker = true;
-			} else {
-				marker = false;
-			}
+			marker = mark == 1;
 
-			return new Frame(payloadType, marker, sequenceNumber, timestamp, payload, offset, len);
+			return new Frame(payloadType, marker, sequenceNumber, timestamp, payload, 0, len);
 		} else {
 			throw new RTSPException("Could not parse RTP packet.");
 		}
@@ -453,8 +435,8 @@ public class RTSPConnection {
 	private void printStatistics() {
 		updateStatistics();
 
-		System.out.printf("[INFO] Packet Loss: %s\n", df.format(pktLossProportion));
-		System.out.printf("[INFO] Packet Out of Order Rate: %s = %d/%d\n", df.format(outOfOrderProportion), totalOutOfOrder, highestSeqReceived);
-		System.out.printf("[INFO] Frame Rate: %s\n\n", df.format(frameRate));
+		System.out.printf("[INFO] Packet Loss: %s\n", Formatter.format(pktLossProportion));
+		System.out.printf("[INFO] Packet Out of Order Rate: %s = %d/%d\n", Formatter.format(outOfOrderProportion), totalOutOfOrder, highestSeqReceived);
+		System.out.printf("[INFO] Frame Rate: %s\n\n", Formatter.format(frameRate));
 	}
 }
